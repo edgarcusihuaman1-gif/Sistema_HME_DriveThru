@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import io
 
 # Configuración de página web en español
 st.set_page_config(
@@ -8,6 +9,15 @@ st.set_page_config(
     page_icon="🚗",
     layout="wide"
 )
+
+# Estilo para ocultar menú nativo de Streamlit y marcas de agua
+estilo_oculto = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+"""
+st.markdown(estilo_oculto, unsafe_allow_html=True)
 
 EXCEL_FILE = "DRIVE TRHU BASE.xlsx"
 
@@ -29,6 +39,42 @@ if 'df_hme' not in st.session_state:
     st.session_state.df_2026 = df_2026_ini
     st.session_state.df_cotiz = df_cotiz_ini
 
+# -------------------------------------------------------------
+# FUNCIONES AUXILIARES DE EXPORTACIÓN (EXCEL Y PDF/HTML)
+# -------------------------------------------------------------
+def exportar_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Reporte')
+    return output.getvalue()
+
+def generar_html_reporte(titulo, df):
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>{titulo}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; color: #333; }}
+            h1 {{ color: #1E3A8A; text-align: center; border-bottom: 2px solid #1E3A8A; padding-bottom: 10px; }}
+            p.fecha {{ text-align: right; font-size: 12px; color: #666; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #1E3A8A; color: white; }}
+            tr:nth-child(even) {{ background-color: #f2f2f2; }}
+        </style>
+    </head>
+    <body>
+        <h1>🚗 Sistema HME Drive-Thru</h1>
+        <h2>{titulo}</h2>
+        <p class="fecha">Fecha de emisión: {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+        {df.to_html(index=False, classes='table')}
+    </body>
+    </html>
+    """
+    return html_content.encode('utf-8')
+
 # Menú de Navegación en Español
 st.sidebar.title("🚗 Panel de Control HME")
 opcion = st.sidebar.radio(
@@ -38,7 +84,8 @@ opcion = st.sidebar.radio(
         "📋 Inventario y Estado de Tiendas", 
         "🛠️ Histórico de Atenciones", 
         "📝 Registrar Nueva Atención", 
-        "💵 Catálogo de Repuestos"
+        "💵 Catálogo de Repuestos",
+        "📥 Exportar Reportes"
     ]
 )
 
@@ -88,9 +135,27 @@ elif opcion == "📋 Inventario y Estado de Tiendas":
         key="editor_tiendas"
     )
 
-    if st.button("💾 Guardar Cambios en la Web"):
-        st.session_state.df_hme = df_editado
-        st.success("✅ ¡El inventario ha sido actualizado correctamente en la plataforma!")
+    col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+    with col_btn1:
+        if st.button("💾 Guardar Cambios en la Web"):
+            st.session_state.df_hme = df_editado
+            st.success("✅ ¡El inventario ha sido actualizado correctamente en la plataforma!")
+
+    with col_btn2:
+        st.download_button(
+            label="📊 Exportar a Excel",
+            data=exportar_excel(st.session_state.df_hme),
+            file_name=f"Inventario_HME_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    with col_btn3:
+        st.download_button(
+            label="📄 Exportar a PDF",
+            data=generar_html_reporte("Reporte de Inventario de Tiendas", st.session_state.df_hme),
+            file_name=f"Inventario_HME_{datetime.now().strftime('%Y%m%d')}.html",
+            mime="text/html"
+        )
 
 # -------------------------------------------------------------
 # MÓDULO 3: HISTÓRICO DE ATENCIONES
@@ -102,9 +167,42 @@ elif opcion == "🛠️ Histórico de Atenciones":
     with t1:
         st.subheader("Atenciones del Año 2026")
         st.dataframe(st.session_state.df_2026, use_container_width=True, hide_index=True)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.download_button(
+                label="📊 Descargar Excel (2026)",
+                data=exportar_excel(st.session_state.df_2026),
+                file_name=f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        with c2:
+            st.download_button(
+                label="📄 Descargar PDF (2026)",
+                data=generar_html_reporte("Reporte de Atenciones 2026", st.session_state.df_2026),
+                file_name=f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.html",
+                mime="text/html"
+            )
+
     with t2:
         st.subheader("Atenciones del Año 2025")
         st.dataframe(st.session_state.df_2025, use_container_width=True, hide_index=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.download_button(
+                label="📊 Descargar Excel (2025)",
+                data=exportar_excel(st.session_state.df_2025),
+                file_name=f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        with c2:
+            st.download_button(
+                label="📄 Descargar PDF (2025)",
+                data=generar_html_reporte("Reporte de Atenciones 2025", st.session_state.df_2025),
+                file_name=f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.html",
+                mime="text/html"
+            )
 
 # -------------------------------------------------------------
 # MÓDULO 4: REGISTRAR NUEVA ATENCIÓN DESDE LA WEB
@@ -131,11 +229,9 @@ elif opcion == "📝 Registrar Nueva Atención":
         boton_enviar = st.form_submit_button("💾 Registrar Atención")
 
         if boton_enviar:
-            # Obtener ubicación automática de la tienda seleccionada
             filtro_tienda = st.session_state.df_hme[st.session_state.df_hme['TIENDA'] == tienda_seleccionada]
             ubicacion = filtro_tienda['UBICACIÓN'].values[0] if len(filtro_tienda) > 0 else ""
 
-            # Estructurar nueva fila
             nuevo_ticket = pd.DataFrame([{
                 "FECHA": fecha_atencion.strftime("%Y-%m-%d"),
                 "TIENDA": tienda_seleccionada,
@@ -147,7 +243,6 @@ elif opcion == "📝 Registrar Nueva Atención":
                 "COSTO DE ATENCION": costo_servicio
             }])
 
-            # Actualizar datos en memoria
             st.session_state.df_2026 = pd.concat([st.session_state.df_2026, nuevo_ticket], ignore_index=True)
             st.success("✅ ¡Atención registrada con éxito en el sistema!")
             st.balloons()
@@ -158,3 +253,47 @@ elif opcion == "📝 Registrar Nueva Atención":
 elif opcion == "💵 Catálogo de Repuestos":
     st.title("💵 Catálogo de Repuestos y Precios HME")
     st.dataframe(st.session_state.df_cotiz, use_container_width=True, hide_index=True)
+
+# -------------------------------------------------------------
+# MÓDULO 6: CENTRO DE EXPORTACIÓN GENERAL
+# -------------------------------------------------------------
+elif opcion == "📥 Exportar Reportes":
+    st.title("📥 Centro de Descargas y Exportación de Datos")
+    st.caption("Exporte cualquier tabla del sistema a formato Excel (.xlsx) o genere el archivo formateado para guardar como PDF.")
+
+    modulo_exportar = st.selectbox(
+        "Seleccione los datos que desea exportar:",
+        ["Inventario de Tiendas (Drive HME)", "Histórico de Atenciones 2026", "Histórico de Atenciones 2025", "Catálogo de Repuestos"]
+    )
+
+    if modulo_exportar == "Inventario de Tiendas (Drive HME)":
+        df_target = st.session_state.df_hme
+    elif modulo_exportar == "Histórico de Atenciones 2026":
+        df_target = st.session_state.df_2026
+    elif modulo_exportar == "Histórico de Atenciones 2025":
+        df_target = st.session_state.df_2025
+    else:
+        df_target = st.session_state.df_cotiz
+
+    st.write("### Vista Previa de Datos a Descargar:")
+    st.dataframe(df_target, use_container_width=True, hide_index=True)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.download_button(
+            label="📊 Descargar Archivo Excel (.xlsx)",
+            data=exportar_excel(df_target),
+            file_name=f"{modulo_exportar}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+    with col2:
+        st.download_button(
+            label="📄 Descargar Documento para PDF",
+            data=generar_html_reporte(modulo_exportar, df_target),
+            file_name=f"{modulo_exportar}_{datetime.now().strftime('%Y%m%d')}.html",
+            mime="text/html",
+            use_container_width=True
+        )
