@@ -76,10 +76,21 @@ RENOMBRAR_GLOBAL = {
     'FECHA': 'Fecha'
 }
 
+REVERSO_GLOBAL = {v: k for k, v in RENOMBRAR_GLOBAL.items()}
+
 def acortar_columnas(df):
     """Aplica los nombres cortos a cualquier DataFrame de manera dinámica."""
     columnas_existentes = {k: v for k, v in RENOMBRAR_GLOBAL.items() if k in df.columns}
     return df.rename(columns=columnas_existentes)
+
+def guardar_hoja_excel(df, nombre_hoja):
+    """Guarda los cambios de un DataFrame directamente en el archivo Excel físico."""
+    try:
+        with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            df.to_excel(writer, sheet_name=nombre_hoja, index=False)
+        return True
+    except Exception:
+        return False
 
 # -------------------------------------------------------------
 # FUNCIONES AUXILIARES DE EXPORTACIÓN (EXCEL Y PDF)
@@ -168,9 +179,8 @@ if opcion == "📊 Panel General":
 # -------------------------------------------------------------
 elif opcion == "📋 Inventario de Tiendas":
     st.title("📋 Inventario de Tiendas")
-    st.info("💡 Edite los datos directamente en la tabla:")
+    st.info("💡 Edite los datos directamente en la tabla y presione 'Guardar Cambios':")
 
-    # Mostrar tabla ajustada
     df_editado = st.data_editor(
         acortar_columnas(st.session_state.df_hme), 
         num_rows="dynamic", 
@@ -179,11 +189,18 @@ elif opcion == "📋 Inventario de Tiendas":
     )
 
     col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+    
     with col_btn1:
         if st.button("💾 Guardar Cambios"):
-            inv_renombrado = {v: k for k, v in RENOMBRAR_GLOBAL.items()}
-            st.session_state.df_hme = df_editado.rename(columns=inv_renombrado)
-            st.success("✅ ¡Inventario actualizado!")
+            # Restaurar nombres de columnas originales
+            df_restaurado = df_editado.rename(columns=REVERSO_GLOBAL)
+            st.session_state.df_hme = df_restaurado
+            
+            # Guardar en archivo local
+            if guardar_hoja_excel(df_restaurado, "Drive HME"):
+                st.success("✅ ¡Inventario actualizado en la app y guardado en el archivo Excel!")
+            else:
+                st.warning("⚠️ Cambios guardados en memoria, pero no se pudo escribir el Excel (cierra el archivo si lo tienes abierto).")
 
     with col_btn2:
         st.download_button(
@@ -288,7 +305,9 @@ elif opcion == "📝 Nueva Atención":
             }])
 
             st.session_state.df_2026 = pd.concat([st.session_state.df_2026, nuevo_ticket], ignore_index=True)
-            st.success("✅ ¡Atención registrada correctamente!")
+            guardar_hoja_excel(st.session_state.df_2026, "Atenciones 2026")
+            
+            st.success("✅ ¡Atención registrada y guardada exitosamente!")
             st.balloons()
 
 # -------------------------------------------------------------
