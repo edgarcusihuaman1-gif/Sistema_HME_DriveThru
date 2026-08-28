@@ -136,17 +136,17 @@ def exportar_excel(df):
     return output.getvalue()
 
 def generar_pdf(titulo, df):
-    """Genera un archivo PDF real en memoria utilizando ReportLab."""
+    """Genera un archivo PDF ajustando automáticamente el ancho de tabla y texto."""
     df_corto = acortar_columnas(df)
     buffer = io.BytesIO()
     
     doc = SimpleDocTemplate(
         buffer,
         pagesize=landscape(letter),
-        rightMargin=20,
-        leftMargin=20,
-        topMargin=20,
-        bottomMargin=20
+        rightMargin=15,
+        leftMargin=15,
+        topMargin=15,
+        bottomMargin=15
     )
     
     elementos = []
@@ -155,29 +155,29 @@ def generar_pdf(titulo, df):
     estilo_titulo = ParagraphStyle(
         'TituloPDF',
         parent=estilos['Heading1'],
-        fontSize=16,
-        leading=20,
+        fontSize=14,
+        leading=16,
         textColor=colors.HexColor('#1E3A8A'),
         alignment=1,
-        spaceAfter=10
+        spaceAfter=6
     )
     
     estilo_fecha = ParagraphStyle(
         'FechaPDF',
         parent=estilos['Normal'],
-        fontSize=9,
-        leading=11,
+        fontSize=8,
+        leading=10,
         textColor=colors.HexColor('#666666'),
         alignment=2,
-        spaceAfter=15
+        spaceAfter=10
     )
 
     elementos.append(Paragraph("🚗 Sistema HME Drive-Thru", estilo_titulo))
     elementos.append(Paragraph(f"<b>{titulo}</b>", estilos['Heading2']))
     elementos.append(Paragraph(f"Fecha de emisión: {datetime.now().strftime('%d/%m/%Y %H:%M')}", estilo_fecha))
     
-    estilo_celda = ParagraphStyle('Celda', parent=estilos['Normal'], fontSize=8, leading=10)
-    estilo_encabezado = ParagraphStyle('HeaderCelda', parent=estilos['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold')
+    estilo_celda = ParagraphStyle('Celda', parent=estilos['Normal'], fontSize=7, leading=9)
+    estilo_encabezado = ParagraphStyle('HeaderCelda', parent=estilos['Normal'], fontSize=7, leading=9, textColor=colors.white, fontName='Helvetica-Bold')
     
     datos_tabla = []
     headers = [Paragraph(str(col), estilo_encabezado) for col in df_corto.columns]
@@ -187,13 +187,19 @@ def generar_pdf(titulo, df):
         fila_texto = [Paragraph(str(val) if pd.notna(val) else "", estilo_celda) for val in fila]
         datos_tabla.append(fila_texto)
     
-    tabla = Table(datos_tabla, repeatRows=1)
+    num_cols = len(df_corto.columns)
+    ancho_pagina_usable = 762
+    ancho_columna = ancho_pagina_usable / max(num_cols, 1)
+    
+    tabla = Table(datos_tabla, colWidths=[ancho_columna] * num_cols, repeatRows=1)
     tabla.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
     ]))
