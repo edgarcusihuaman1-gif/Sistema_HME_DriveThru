@@ -3,6 +3,12 @@ import pandas as pd
 from datetime import datetime
 import io
 
+# Importaciones de ReportLab para exportación nativa a PDF
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
 # Configuración de página web
 st.set_page_config(
     page_title="Panel HME Autoservicio",
@@ -31,7 +37,7 @@ EXCEL_FILE = "DRIVE TRHU BASE.xlsx"
 
 # -------------------------------------------------------------
 # BASE DE DATOS DE USUARIOS Y ROLES
-# Roles posibles: 'admin', 'visor_exportador', 'solo_vista'
+# Roles disponibles: 'admin', 'visor_exportador', 'solo_vista'
 # -------------------------------------------------------------
 USUARIOS = {
     "admin": {"password": "123", "rol": "admin", "nombre": "Administrador"},
@@ -120,39 +126,82 @@ def guardar_hoja_excel(df, nombre_hoja):
     except Exception:
         return False
 
+# -------------------------------------------------------------
+# FUNCIONES AUXILIARES DE EXPORTACIÓN (EXCEL Y PDF REAL)
+# -------------------------------------------------------------
 def exportar_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Reporte')
     return output.getvalue()
 
-def generar_html_reporte(titulo, df):
+def generar_pdf(titulo, df):
+    """Genera un archivo PDF real en memoria utilizando ReportLab."""
     df_corto = acortar_columnas(df)
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>{titulo}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 20px; color: #333; }}
-            h1 {{ color: #1E3A8A; text-align: center; border-bottom: 2px solid #1E3A8A; padding-bottom: 10px; font-size: 18px; }}
-            p.fecha {{ text-align: right; font-size: 11px; color: #666; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }}
-            th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
-            th {{ background-color: #1E3A8A; color: white; }}
-            tr:nth-child(even) {{ background-color: #f2f2f2; }}
-        </style>
-    </head>
-    <body>
-        <h1>🚗 Sistema HME Drive-Thru</h1>
-        <h2>{titulo}</h2>
-        <p class="fecha">Fecha de emisión: {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
-        {df_corto.to_html(index=False, classes='table')}
-    </body>
-    </html>
-    """
-    return html_content.encode('utf-8')
+    buffer = io.BytesIO()
+    
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        rightMargin=20,
+        leftMargin=20,
+        topMargin=20,
+        bottomMargin=20
+    )
+    
+    elementos = []
+    estilos = getSampleStyleSheet()
+    
+    estilo_titulo = ParagraphStyle(
+        'TituloPDF',
+        parent=estilos['Heading1'],
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor('#1E3A8A'),
+        alignment=1,
+        spaceAfter=10
+    )
+    
+    estilo_fecha = ParagraphStyle(
+        'FechaPDF',
+        parent=estilos['Normal'],
+        fontSize=9,
+        leading=11,
+        textColor=colors.HexColor('#666666'),
+        alignment=2,
+        spaceAfter=15
+    )
+
+    elementos.append(Paragraph("🚗 Sistema HME Drive-Thru", estilo_titulo))
+    elementos.append(Paragraph(f"<b>{titulo}</b>", estilos['Heading2']))
+    elementos.append(Paragraph(f"Fecha de emisión: {datetime.now().strftime('%d/%m/%Y %H:%M')}", estilo_fecha))
+    
+    estilo_celda = ParagraphStyle('Celda', parent=estilos['Normal'], fontSize=8, leading=10)
+    estilo_encabezado = ParagraphStyle('HeaderCelda', parent=estilos['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold')
+    
+    datos_tabla = []
+    headers = [Paragraph(str(col), estilo_encabezado) for col in df_corto.columns]
+    datos_tabla.append(headers)
+    
+    for _, fila in df_corto.iterrows():
+        fila_texto = [Paragraph(str(val) if pd.notna(val) else "", estilo_celda) for val in fila]
+        datos_tabla.append(fila_texto)
+    
+    tabla = Table(datos_tabla, repeatRows=1)
+    tabla.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+    ]))
+    
+    elementos.append(tabla)
+    doc.build(elementos)
+    
+    return buffer.getvalue()
 
 # -------------------------------------------------------------
 # MENÚ DE NAVEGACIÓN Y PERFIL
@@ -160,7 +209,6 @@ def generar_html_reporte(titulo, df):
 st.sidebar.title("🚗 HME Control")
 st.sidebar.caption(f"👤 **Usuario:** {st.session_state.usuario_actual}")
 
-# Filtrar opciones de menú según el rol
 opciones_menu = ["📊 Panel General", "📋 Inventario de Tiendas", "🛠️ Histórico Atenciones", "💵 Cotizaciones"]
 
 if st.session_state.rol_actual == "admin":
@@ -228,17 +276,37 @@ elif opcion == "📋 Inventario de Tiendas":
                 else:
                     st.warning("⚠️ Guardado en memoria. Cierre el Excel físico si lo tiene abierto.")
         with col_btn2:
-            st.download_button("📊 Exportar Excel", exportar_excel(st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.xlsx")
+            st.download_button(
+                "📊 Exportar Excel", 
+                exportar_excel(st.session_state.df_hme), 
+                f"Inventario_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         with col_btn3:
-            st.download_button("📄 Exportar PDF", generar_html_reporte("Reporte Inventario", st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
+            st.download_button(
+                "📄 Exportar PDF", 
+                generar_pdf("Reporte Inventario", st.session_state.df_hme), 
+                f"Inventario_{datetime.now().strftime('%Y%m%d')}.pdf", 
+                mime="application/pdf"
+            )
     
     elif st.session_state.rol_actual == "visor_exportador":
         st.dataframe(acortar_columnas(st.session_state.df_hme), use_container_width=True, hide_index=True)
         col1, col2 = st.columns(2)
         with col1:
-            st.download_button("📊 Exportar Excel", exportar_excel(st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.xlsx")
+            st.download_button(
+                "📊 Exportar Excel", 
+                exportar_excel(st.session_state.df_hme), 
+                f"Inventario_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         with col2:
-            st.download_button("📄 Exportar PDF", generar_html_reporte("Reporte Inventario", st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
+            st.download_button(
+                "📄 Exportar PDF", 
+                generar_pdf("Reporte Inventario", st.session_state.df_hme), 
+                f"Inventario_{datetime.now().strftime('%Y%m%d')}.pdf", 
+                mime="application/pdf"
+            )
 
     else:  # solo_vista
         st.warning("🔒 Modo Lectura. No tiene permisos para editar ni descargar información.")
@@ -257,9 +325,19 @@ elif opcion == "🛠️ Histórico Atenciones":
         if st.session_state.rol_actual in ["admin", "visor_exportador"]:
             c1, c2 = st.columns(2)
             with c1:
-                st.download_button("📊 Descargar Excel (2026)", exportar_excel(st.session_state.df_2026), f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.xlsx")
+                st.download_button(
+                    "📊 Descargar Excel (2026)", 
+                    exportar_excel(st.session_state.df_2026), 
+                    f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             with c2:
-                st.download_button("📄 Descargar PDF (2026)", generar_html_reporte("Atenciones 2026", st.session_state.df_2026), f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
+                st.download_button(
+                    "📄 Descargar PDF (2026)", 
+                    generar_pdf("Atenciones 2026", st.session_state.df_2026), 
+                    f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.pdf", 
+                    mime="application/pdf"
+                )
 
     with t2:
         st.subheader("Año 2025")
@@ -267,9 +345,19 @@ elif opcion == "🛠️ Histórico Atenciones":
         if st.session_state.rol_actual in ["admin", "visor_exportador"]:
             c1, c2 = st.columns(2)
             with c1:
-                st.download_button("📊 Descargar Excel (2025)", exportar_excel(st.session_state.df_2025), f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.xlsx")
+                st.download_button(
+                    "📊 Descargar Excel (2025)", 
+                    exportar_excel(st.session_state.df_2025), 
+                    f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             with c2:
-                st.download_button("📄 Descargar PDF (2025)", generar_html_reporte("Atenciones 2025", st.session_state.df_2025), f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
+                st.download_button(
+                    "📄 Descargar PDF (2025)", 
+                    generar_pdf("Atenciones 2025", st.session_state.df_2025), 
+                    f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.pdf", 
+                    mime="application/pdf"
+                )
 
 # -------------------------------------------------------------
 # MÓDULO 4: REGISTRAR NUEVA ATENCIÓN (SOLO ADMIN)
@@ -338,6 +426,18 @@ elif opcion == "📥 Exportar Datos" and st.session_state.rol_actual in ["admin"
 
     col1, col2 = st.columns(2)
     with col1:
-        st.download_button("📊 Descargar Excel", exportar_excel(df_target), f"{modulo_exportar}.xlsx", use_container_width=True)
+        st.download_button(
+            "📊 Descargar Excel", 
+            exportar_excel(df_target), 
+            f"{modulo_exportar}.xlsx", 
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
     with col2:
-        st.download_button("📄 Descargar PDF", generar_html_reporte(modulo_exportar, df_target), f"{modulo_exportar}.html", mime="text/html", use_container_width=True)
+        st.download_button(
+            "📄 Descargar PDF", 
+            generar_pdf(modulo_exportar, df_target), 
+            f"{modulo_exportar}.pdf", 
+            mime="application/pdf", 
+            use_container_width=True
+        )
