@@ -15,19 +15,10 @@ estilo_oculto = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    h1 {
-        font-size: 1.6rem !important;
-        padding-top: 0rem !important;
-    }
-    h2 {
-        font-size: 1.3rem !important;
-    }
-    h3 {
-        font-size: 1.1rem !important;
-    }
-    .stHeader {
-        padding-top: 0.5rem !important;
-    }
+    h1 { font-size: 1.6rem !important; padding-top: 0rem !important; }
+    h2 { font-size: 1.3rem !important; }
+    h3 { font-size: 1.1rem !important; }
+    .stHeader { padding-top: 0.5rem !important; }
     [data-testid="stTable"] th, [data-testid="stDataEditor"] th {
         font-size: 13px !important;
         white-space: nowrap !important;
@@ -38,7 +29,51 @@ st.markdown(estilo_oculto, unsafe_allow_html=True)
 
 EXCEL_FILE = "DRIVE TRHU BASE.xlsx"
 
-# Cargar datos e inicializar el estado de la sesión (Session State)
+# -------------------------------------------------------------
+# BASE DE DATOS DE USUARIOS Y ROLES
+# Roles posibles: 'admin', 'visor_exportador', 'solo_vista'
+# -------------------------------------------------------------
+USUARIOS = {
+    "admin": {"password": "123", "rol": "admin", "nombre": "Administrador"},
+    "reportes": {"password": "123", "rol": "visor_exportador", "nombre": "Usuario Exportación"},
+    "invitado": {"password": "123", "rol": "solo_vista", "nombre": "Usuario Solo Lectura"}
+}
+
+# Control de Sesión / Login
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+    st.session_state.usuario_actual = None
+    st.session_state.rol_actual = None
+
+def login():
+    st.title("🔒 Control de Acceso - HME System")
+    with st.form("form_login"):
+        user = st.text_input("Usuario:").strip().lower()
+        pwd = st.text_input("Contraseña:", type="password")
+        submit = st.form_submit_button("Iniciar Sesión")
+
+        if submit:
+            if user in USUARIOS and USUARIOS[user]["password"] == pwd:
+                st.session_state.autenticado = True
+                st.session_state.usuario_actual = USUARIOS[user]["nombre"]
+                st.session_state.rol_actual = USUARIOS[user]["rol"]
+                st.rerun()
+            else:
+                st.error("⚠️ Usuario o contraseña incorrectos.")
+
+def logout():
+    st.session_state.autenticado = False
+    st.session_state.usuario_actual = None
+    st.session_state.rol_actual = None
+    st.rerun()
+
+if not st.session_state.autenticado:
+    login()
+    st.stop()
+
+# -------------------------------------------------------------
+# CARGA Y PERSISTENCIA DE DATOS
+# -------------------------------------------------------------
 @st.cache_data
 def cargar_datos_iniciales():
     xls = pd.ExcelFile(EXCEL_FILE)
@@ -55,11 +90,7 @@ if 'df_hme' not in st.session_state:
     st.session_state.df_2026 = df_2026_ini
     st.session_state.df_cotiz = df_cotiz_ini
 
-# -------------------------------------------------------------
-# DICCIONARIO GLOBAL DE ACOPTAMIENTO DE ENCABEZADOS
-# -------------------------------------------------------------
 RENOMBRAR_GLOBAL = {
-    # Tabla Inventario
     'HEADPHONE OPERATIVOS': 'Headph. Operat.',
     'HEADPHONE AVERIADOS': 'Headph. Averiados',
     'TOTAL HEADPHONE': 'Total Headph.',
@@ -67,7 +98,6 @@ RENOMBRAR_GLOBAL = {
     'CARGADOR OPERATIVO': 'Estado Cargador',
     'UBICACIÓN': 'Ubicación',
     'TIENDA': 'Tienda',
-    # Tabla Atenciones
     'TIPO DE ATENCION': 'Tipo Atenc.',
     'COSTO DE ATENCION': 'Costo ($)',
     'DIAGNOSTICO': 'Diagnóstico',
@@ -79,12 +109,10 @@ RENOMBRAR_GLOBAL = {
 REVERSO_GLOBAL = {v: k for k, v in RENOMBRAR_GLOBAL.items()}
 
 def acortar_columnas(df):
-    """Aplica los nombres cortos a cualquier DataFrame de manera dinámica."""
     columnas_existentes = {k: v for k, v in RENOMBRAR_GLOBAL.items() if k in df.columns}
     return df.rename(columns=columnas_existentes)
 
 def guardar_hoja_excel(df, nombre_hoja):
-    """Guarda los cambios de un DataFrame directamente en el archivo Excel físico."""
     try:
         with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
             df.to_excel(writer, sheet_name=nombre_hoja, index=False)
@@ -92,9 +120,6 @@ def guardar_hoja_excel(df, nombre_hoja):
     except Exception:
         return False
 
-# -------------------------------------------------------------
-# FUNCIONES AUXILIARES DE EXPORTACIÓN (EXCEL Y PDF)
-# -------------------------------------------------------------
 def exportar_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -129,19 +154,25 @@ def generar_html_reporte(titulo, df):
     """
     return html_content.encode('utf-8')
 
-# Menú de Navegación
+# -------------------------------------------------------------
+# MENÚ DE NAVEGACIÓN Y PERFIL
+# -------------------------------------------------------------
 st.sidebar.title("🚗 HME Control")
-opcion = st.sidebar.radio(
-    "Menú Principal:",
-    [
-        "📊 Panel General", 
-        "📋 Inventario de Tiendas", 
-        "🛠️ Histórico Atenciones", 
-        "📝 Nueva Atención", 
-        "💵 Cotizaciones",
-        "📥 Exportar Datos"
-    ]
-)
+st.sidebar.caption(f"👤 **Usuario:** {st.session_state.usuario_actual}")
+
+# Filtrar opciones de menú según el rol
+opciones_menu = ["📊 Panel General", "📋 Inventario de Tiendas", "🛠️ Histórico Atenciones", "💵 Cotizaciones"]
+
+if st.session_state.rol_actual == "admin":
+    opciones_menu.insert(3, "📝 Nueva Atención")
+
+if st.session_state.rol_actual in ["admin", "visor_exportador"]:
+    opciones_menu.append("📥 Exportar Datos")
+
+opcion = st.sidebar.radio("Menú Principal:", opciones_menu)
+
+if st.sidebar.button("🚪 Cerrar Sesión"):
+    logout()
 
 # -------------------------------------------------------------
 # MÓDULO 1: PANEL GENERAL
@@ -159,7 +190,6 @@ if opcion == "📊 Panel General":
     c4.metric("Gasto 2026", f"${costo_total:,.2f} USD")
 
     st.markdown("---")
-
     col_left, col_right = st.columns([1.2, 1])
     
     with col_left:
@@ -179,44 +209,40 @@ if opcion == "📊 Panel General":
 # -------------------------------------------------------------
 elif opcion == "📋 Inventario de Tiendas":
     st.title("📋 Inventario de Tiendas")
-    st.info("💡 Edite los datos directamente en la tabla y presione 'Guardar Cambios':")
 
-    df_editado = st.data_editor(
-        acortar_columnas(st.session_state.df_hme), 
-        num_rows="dynamic", 
-        use_container_width=True,
-        key="editor_tiendas"
-    )
-
-    col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+    if st.session_state.rol_actual == "admin":
+        st.info("💡 Edite los datos directamente en la tabla y presione 'Guardar Cambios':")
+        df_editado = st.data_editor(
+            acortar_columnas(st.session_state.df_hme), 
+            num_rows="dynamic", 
+            use_container_width=True,
+            key="editor_tiendas"
+        )
+        col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+        with col_btn1:
+            if st.button("💾 Guardar Cambios"):
+                df_restaurado = df_editado.rename(columns=REVERSO_GLOBAL)
+                st.session_state.df_hme = df_restaurado
+                if guardar_hoja_excel(df_restaurado, "Drive HME"):
+                    st.success("✅ ¡Inventario actualizado en la app y en Excel!")
+                else:
+                    st.warning("⚠️ Guardado en memoria. Cierre el Excel físico si lo tiene abierto.")
+        with col_btn2:
+            st.download_button("📊 Exportar Excel", exportar_excel(st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.xlsx")
+        with col_btn3:
+            st.download_button("📄 Exportar PDF", generar_html_reporte("Reporte Inventario", st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
     
-    with col_btn1:
-        if st.button("💾 Guardar Cambios"):
-            # Restaurar nombres de columnas originales
-            df_restaurado = df_editado.rename(columns=REVERSO_GLOBAL)
-            st.session_state.df_hme = df_restaurado
-            
-            # Guardar en archivo local
-            if guardar_hoja_excel(df_restaurado, "Drive HME"):
-                st.success("✅ ¡Inventario actualizado en la app y guardado en el archivo Excel!")
-            else:
-                st.warning("⚠️ Cambios guardados en memoria, pero no se pudo escribir el Excel (cierra el archivo si lo tienes abierto).")
+    elif st.session_state.rol_actual == "visor_exportador":
+        st.dataframe(acortar_columnas(st.session_state.df_hme), use_container_width=True, hide_index=True)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button("📊 Exportar Excel", exportar_excel(st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.xlsx")
+        with col2:
+            st.download_button("📄 Exportar PDF", generar_html_reporte("Reporte Inventario", st.session_state.df_hme), f"Inventario_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
 
-    with col_btn2:
-        st.download_button(
-            label="📊 Exportar Excel",
-            data=exportar_excel(st.session_state.df_hme),
-            file_name=f"Inventario_HME_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    with col_btn3:
-        st.download_button(
-            label="📄 Exportar PDF",
-            data=generar_html_reporte("Reporte de Inventario de Tiendas", st.session_state.df_hme),
-            file_name=f"Inventario_HME_{datetime.now().strftime('%Y%m%d')}.html",
-            mime="text/html"
-        )
+    else:  # solo_vista
+        st.warning("🔒 Modo Lectura. No tiene permisos para editar ni descargar información.")
+        st.dataframe(acortar_columnas(st.session_state.df_hme), use_container_width=True, hide_index=True)
 
 # -------------------------------------------------------------
 # MÓDULO 3: HISTÓRICO DE ATENCIONES
@@ -228,53 +254,30 @@ elif opcion == "🛠️ Histórico Atenciones":
     with t1:
         st.subheader("Año 2026")
         st.dataframe(acortar_columnas(st.session_state.df_2026), use_container_width=True, hide_index=True)
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.download_button(
-                label="📊 Descargar Excel (2026)",
-                data=exportar_excel(st.session_state.df_2026),
-                file_name=f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        with c2:
-            st.download_button(
-                label="📄 Descargar PDF (2026)",
-                data=generar_html_reporte("Reporte de Atenciones 2026", st.session_state.df_2026),
-                file_name=f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.html",
-                mime="text/html"
-            )
+        if st.session_state.rol_actual in ["admin", "visor_exportador"]:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.download_button("📊 Descargar Excel (2026)", exportar_excel(st.session_state.df_2026), f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.xlsx")
+            with c2:
+                st.download_button("📄 Descargar PDF (2026)", generar_html_reporte("Atenciones 2026", st.session_state.df_2026), f"Atenciones_2026_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
 
     with t2:
         st.subheader("Año 2025")
         st.dataframe(acortar_columnas(st.session_state.df_2025), use_container_width=True, hide_index=True)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.download_button(
-                label="📊 Descargar Excel (2025)",
-                data=exportar_excel(st.session_state.df_2025),
-                file_name=f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        with c2:
-            st.download_button(
-                label="📄 Descargar PDF (2025)",
-                data=generar_html_reporte("Reporte de Atenciones 2025", st.session_state.df_2025),
-                file_name=f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.html",
-                mime="text/html"
-            )
+        if st.session_state.rol_actual in ["admin", "visor_exportador"]:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.download_button("📊 Descargar Excel (2025)", exportar_excel(st.session_state.df_2025), f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.xlsx")
+            with c2:
+                st.download_button("📄 Descargar PDF (2025)", generar_html_reporte("Atenciones 2025", st.session_state.df_2025), f"Atenciones_2025_{datetime.now().strftime('%Y%m%d')}.html", mime="text/html")
 
 # -------------------------------------------------------------
-# MÓDULO 4: REGISTRAR NUEVA ATENCIÓN
+# MÓDULO 4: REGISTRAR NUEVA ATENCIÓN (SOLO ADMIN)
 # -------------------------------------------------------------
-elif opcion == "📝 Nueva Atención":
+elif opcion == "📝 Nueva Atención" and st.session_state.rol_actual == "admin":
     st.title("📝 Registrar Atención")
-    st.caption("Complete el formulario para guardar una nueva visita o soporte técnico.")
-
     with st.form("formulario_atencion"):
         col1, col2 = st.columns(2)
-        
         with col1:
             tiendas_disponibles = st.session_state.df_hme['TIENDA'].unique()
             tienda_seleccionada = st.selectbox("Tienda:", tiendas_disponibles)
@@ -306,9 +309,7 @@ elif opcion == "📝 Nueva Atención":
 
             st.session_state.df_2026 = pd.concat([st.session_state.df_2026, nuevo_ticket], ignore_index=True)
             guardar_hoja_excel(st.session_state.df_2026, "Atenciones 2026")
-            
-            st.success("✅ ¡Atención registrada y guardada exitosamente!")
-            st.balloons()
+            st.success("✅ ¡Atención registrada y guardada!")
 
 # -------------------------------------------------------------
 # MÓDULO 5: CATÁLOGO Y COTIZACIONES
@@ -318,12 +319,10 @@ elif opcion == "💵 Cotizaciones":
     st.dataframe(acortar_columnas(st.session_state.df_cotiz), use_container_width=True, hide_index=True)
 
 # -------------------------------------------------------------
-# MÓDULO 6: EXPORTAR DATOS
+# MÓDULO 6: EXPORTAR DATOS (ADMIN Y VISOR_EXPORTADOR)
 # -------------------------------------------------------------
-elif opcion == "📥 Exportar Datos":
+elif opcion == "📥 Exportar Datos" and st.session_state.rol_actual in ["admin", "visor_exportador"]:
     st.title("📥 Centro de Exportación")
-    st.caption("Seleccione la tabla que desea descargar en Excel o PDF:")
-
     modulo_exportar = st.selectbox("Seleccionar Tabla:", ["Inventario de Tiendas", "Atenciones 2026", "Atenciones 2025", "Catálogo de Repuestos"])
 
     if modulo_exportar == "Inventario de Tiendas":
@@ -335,25 +334,10 @@ elif opcion == "📥 Exportar Datos":
     else:
         df_target = st.session_state.df_cotiz
 
-    st.write("### Vista Previa:")
     st.dataframe(acortar_columnas(df_target), use_container_width=True, hide_index=True)
 
     col1, col2 = st.columns(2)
-
     with col1:
-        st.download_button(
-            label="📊 Descargar Excel (.xlsx)",
-            data=exportar_excel(df_target),
-            file_name=f"{modulo_exportar}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-
+        st.download_button("📊 Descargar Excel", exportar_excel(df_target), f"{modulo_exportar}.xlsx", use_container_width=True)
     with col2:
-        st.download_button(
-            label="📄 Descargar PDF / Impresión",
-            data=generar_html_reporte(modulo_exportar, df_target),
-            file_name=f"{modulo_exportar}_{datetime.now().strftime('%Y%m%d')}.html",
-            mime="text/html",
-            use_container_width=True
-        )
+        st.download_button("📄 Descargar PDF", generar_html_reporte(modulo_exportar, df_target), f"{modulo_exportar}.html", mime="text/html", use_container_width=True)
